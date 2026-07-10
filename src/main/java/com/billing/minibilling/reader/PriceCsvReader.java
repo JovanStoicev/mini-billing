@@ -1,6 +1,7 @@
 package com.billing.minibilling.reader;
 
 import com.billing.minibilling.model.Price;
+import com.billing.minibilling.util.Constants;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -13,14 +14,13 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static com.billing.minibilling.util.Constants.PRICE_FILE_PATTERN;
+
 @Component
 public class PriceCsvReader {
-    private static final Pattern PRICE_FILE_PATTERN = Pattern.compile("prices-(\\d+)\\.csv");
-
     public Map<Integer, List<Price>> readAll(Path inputDirectory) {
         try (Stream<Path> files = Files.list(inputDirectory)) {
             return files
@@ -73,6 +73,6 @@ public class PriceCsvReader {
     }
 
     private String stripBom(String value) {
-        return value.startsWith("\uFEFF") ? value.substring(1) : value;
+        return value.startsWith(Constants.UTF_8_BOM) ? value.substring(1) : value;
     }
 }

@@ -11,10 +11,11 @@ import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import java.util.List;
 
+import static com.billing.minibilling.util.Constants.READINGS_FILE_NAME;
+import static com.billing.minibilling.util.Constants.UTF_8_BOM;
+
 @Component
 public class ReadingCsvReader {
-    private static final String READINGS_FILE_NAME = "readings.csv";
-
     public List<Reading> read(Path inputDirectory) {
         Path readingsFile = inputDirectory.resolve(READINGS_FILE_NAME);
 
@@ -44,6 +45,6 @@ public class ReadingCsvReader {
     }
 
     private String stripBom(String value) {
-        return value.startsWith("\uFEFF") ? value.substring(1) : value;
+        return value.startsWith(UTF_8_BOM) ? value.substring(1) : value;
     }
 }

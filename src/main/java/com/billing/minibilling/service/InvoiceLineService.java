@@ -9,9 +9,10 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Optional;
 
 import static com.billing.minibilling.util.Constants.*;
 
@@ -27,31 +28,23 @@ public class InvoiceLineService {
             throw new IllegalArgumentException("Measurement end date must be after start date");
         }
 
-        AtomicInteger lineIndex = new AtomicInteger(1);
-
-        List<InvoiceLine> invoiceLines = prices.stream()
+        List<LinePeriod> linePeriods = prices.stream()
                 .filter(price -> price.getProduct().equals(measurement.getProduct()))
                 .sorted(Comparator.comparing(Price::getStartDate))
-                .map(price -> createInvoiceLine(measurement, price, priceListNumber, totalSeconds, lineIndex))
-                .flatMap(List::stream)
+                .map(price -> createLinePeriod(measurement, price))
+                .flatMap(Optional::stream)
                 .toList();
 
-        if (invoiceLines.isEmpty()) {
+        if (linePeriods.isEmpty()) {
             throw new IllegalArgumentException("Missing price for product " + measurement.getProduct());
         }
 
-        validateFullPriceCoverage(invoiceLines, totalSeconds, measurement.getProduct());
+        validateFullPriceCoverage(linePeriods, totalSeconds, measurement.getProduct());
 
-        return invoiceLines;
+        return createInvoiceLines(measurement, linePeriods, priceListNumber, totalSeconds);
     }
 
-    private List<InvoiceLine> createInvoiceLine(
-            Measurement measurement,
-            Price price,
-            int priceListNumber,
-            long totalSeconds,
-            AtomicInteger lineIndex
-    ) {
+    private Optional<LinePeriod> createLinePeriod(Measurement measurement, Price price) {
         OffsetDateTime priceStart = price.getStartDate()
                 .atStartOfDay(BILLING_ZONE)
                 .toOffsetDateTime();
@@ -64,28 +57,50 @@ public class InvoiceLineService {
         OffsetDateTime lineEnd = min(measurement.getEndDate(), priceEnd);
 
         if (lineStart.isAfter(lineEnd)) {
-            return List.of();
+            return Optional.empty();
         }
 
-        long lineSeconds = inclusiveSecondsBetween(lineStart, lineEnd);
-        BigDecimal quantity = calculateProportionalQuantity(measurement.getQuantity(), lineSeconds, totalSeconds);
-        BigDecimal amount = quantity.multiply(price.getAmount()).setScale(AMOUNT_SCALE, RoundingMode.CEILING);
-
-        return List.of(new InvoiceLine(
-                lineIndex.getAndIncrement(),
-                quantity,
-                lineStart,
-                lineEnd,
-                measurement.getProduct(),
-                price.getAmount(),
-                priceListNumber,
-                amount
-        ));
+        return Optional.of(new LinePeriod(lineStart, lineEnd, price));
     }
 
-    private void validateFullPriceCoverage(List<InvoiceLine> invoiceLines, long totalSeconds, String product) {
-        long coveredSeconds = invoiceLines.stream()
-                .mapToLong(line -> inclusiveSecondsBetween(line.getLineStart(), line.getLineEnd()))
+    private List<InvoiceLine> createInvoiceLines(
+            Measurement measurement,
+            List<LinePeriod> linePeriods,
+            int priceListNumber,
+            long totalSeconds
+    ) {
+        List<InvoiceLine> invoiceLines = new ArrayList<>();
+        BigDecimal distributedQuantity = BigDecimal.ZERO.setScale(QUANTITY_SCALE, RoundingMode.CEILING);
+        BigDecimal totalQuantity = measurement.getQuantity().setScale(QUANTITY_SCALE, RoundingMode.CEILING);
+
+        for (int index = 0; index < linePeriods.size(); index++) {
+            LinePeriod linePeriod = linePeriods.get(index);
+            boolean isLastLine = index == linePeriods.size() - 1;
+            BigDecimal quantity = isLastLine
+                    ? totalQuantity.subtract(distributedQuantity)
+                    : calculateProportionalQuantity(totalQuantity, linePeriod.seconds(), totalSeconds);
+            BigDecimal amount = quantity.multiply(linePeriod.price().getAmount()).setScale(AMOUNT_SCALE, RoundingMode.CEILING);
+
+            invoiceLines.add(new InvoiceLine(
+                    index + 1,
+                    quantity,
+                    linePeriod.start(),
+                    linePeriod.end(),
+                    measurement.getProduct(),
+                    linePeriod.price().getAmount(),
+                    priceListNumber,
+                    amount
+            ));
+
+            distributedQuantity = distributedQuantity.add(quantity);
+        }
+
+        return invoiceLines;
+    }
+
+    private void validateFullPriceCoverage(List<LinePeriod> linePeriods, long totalSeconds, String product) {
+        long coveredSeconds = linePeriods.stream()
+                .mapToLong(LinePeriod::seconds)
                 .sum();
 
         if (coveredSeconds != totalSeconds) {
@@ -109,5 +124,11 @@ public class InvoiceLineService {
 
     private OffsetDateTime min(OffsetDateTime first, OffsetDateTime second) {
         return first.isBefore(second) ? first : second;
+    }
+
+    private record LinePeriod(OffsetDateTime start, OffsetDateTime end, Price price) {
+        private long seconds() {
+            return ChronoUnit.SECONDS.between(start, end) + 1;
+        }
     }
 }

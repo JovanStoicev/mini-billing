@@ -14,12 +14,12 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class BillingServiceTest {
@@ -74,10 +74,9 @@ class BillingServiceTest {
 
         when(userService.loadUsers(inputDirectory)).thenReturn(List.of(user));
         when(readingService.loadReadings(inputDirectory)).thenReturn(List.of(reading));
+        when(priceService.loadPriceLists(inputDirectory)).thenReturn(Map.of(2, List.of(price)));
         when(measurementService.calculateMonthlyMeasurements(List.of(reading), billingMonth))
                 .thenReturn(List.of(measurement));
-        when(priceService.findByPriceListNumberAndProduct(inputDirectory, 2, "gas"))
-                .thenReturn(List.of(price));
         when(invoiceLineService.createInvoiceLines(measurement, List.of(price), 2))
                 .thenReturn(List.of(invoiceLine));
 
@@ -101,12 +100,13 @@ class BillingServiceTest {
 
         when(userService.loadUsers(inputDirectory)).thenReturn(List.of(user));
         when(readingService.loadReadings(inputDirectory)).thenReturn(List.of());
+        when(priceService.loadPriceLists(inputDirectory)).thenReturn(Map.of());
         when(measurementService.calculateMonthlyMeasurements(List.of(), billingMonth)).thenReturn(List.of());
 
         List<Invoice> invoices = billingService.generateInvoices(inputDirectory, billingMonth);
 
         assertEquals(0, invoices.size());
-        verify(priceService, never()).findByPriceListNumberAndProduct(inputDirectory, 2, "gas");
+        verifyNoInteractions(invoiceLineService);
     }
 
     @Test
@@ -123,6 +123,7 @@ class BillingServiceTest {
 
         when(userService.loadUsers(inputDirectory)).thenReturn(List.of());
         when(readingService.loadReadings(inputDirectory)).thenReturn(List.of());
+        when(priceService.loadPriceLists(inputDirectory)).thenReturn(Map.of());
         when(measurementService.calculateMonthlyMeasurements(List.of(), billingMonth))
                 .thenReturn(List.of(measurement));
 

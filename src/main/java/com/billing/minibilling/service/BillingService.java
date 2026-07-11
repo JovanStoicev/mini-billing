@@ -37,6 +37,7 @@ public class BillingService {
     public List<Invoice> generateInvoices(Path inputDirectory, YearMonth billingMonth) {
         List<User> users = userService.loadUsers(inputDirectory);
         List<Reading> readings = readingService.loadReadings(inputDirectory);
+        Map<Integer, List<Price>> priceLists = priceService.loadPriceLists(inputDirectory);
         List<Measurement> measurements = measurementService.calculateMonthlyMeasurements(readings, billingMonth);
 
         Map<String, User> usersByReferenceNumber = users.stream()
@@ -59,7 +60,7 @@ public class BillingService {
                 continue;
             }
 
-            invoices.add(createInvoice(inputDirectory, user, userMeasurements, documentNumber));
+            invoices.add(createInvoice(user, userMeasurements, priceLists, documentNumber));
             documentNumber++;
         }
 
@@ -67,14 +68,14 @@ public class BillingService {
     }
 
     private Invoice createInvoice(
-            Path inputDirectory,
             User user,
             List<Measurement> measurements,
+            Map<Integer, List<Price>> priceLists,
             int documentNumber
     ) {
         List<InvoiceLine> lines = measurements.stream()
                 .sorted(Comparator.comparing(Measurement::getProduct))
-                .map(measurement -> createInvoiceLines(inputDirectory, user, measurement))
+                .map(measurement -> createInvoiceLines(user, measurement, priceLists))
                 .flatMap(List::stream)
                 .toList();
 
@@ -95,16 +96,24 @@ public class BillingService {
         );
     }
 
-    private List<InvoiceLine> createInvoiceLines(Path inputDirectory, User user, Measurement measurement) {
-        List<Price> prices = priceService.findByPriceListNumberAndProduct(
-                inputDirectory,
-                user.getPriceListNumber(),
-                measurement.getProduct()
-        );
+    private List<InvoiceLine> createInvoiceLines(
+            User user,
+            Measurement measurement,
+            Map<Integer, List<Price>> priceLists
+    ) {
+        List<Price> prices = priceLists.get(user.getPriceListNumber());
+        if (prices == null) {
+            throw new IllegalArgumentException("Missing price list: " + user.getPriceListNumber());
+        }
+
+        List<Price> productPrices = prices.stream()
+                .filter(price -> price.getProduct().equals(measurement.getProduct()))
+                .sorted(Comparator.comparing(Price::getStartDate))
+                .toList();
 
         return invoiceLineService.createInvoiceLines(
                 measurement,
-                prices,
+                productPrices,
                 user.getPriceListNumber()
         );
     }

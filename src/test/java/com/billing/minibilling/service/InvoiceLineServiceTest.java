@@ -77,6 +77,45 @@ class InvoiceLineServiceTest {
     }
 
     @Test
+    void keepsTotalQuantityWhenSplittingIntoThreeEqualPeriods() {
+        Measurement measurement = new Measurement(
+                "1",
+                "gas",
+                OffsetDateTime.parse("2024-01-01T00:00:00+02:00"),
+                OffsetDateTime.parse("2024-01-03T23:59:59+02:00"),
+                new BigDecimal("100")
+        );
+        List<Price> prices = List.of(
+                new Price(
+                        "gas",
+                        LocalDate.parse("2024-01-01"),
+                        LocalDate.parse("2024-01-01"),
+                        new BigDecimal("1.0")
+                ),
+                new Price(
+                        "gas",
+                        LocalDate.parse("2024-01-02"),
+                        LocalDate.parse("2024-01-02"),
+                        new BigDecimal("1.0")
+                ),
+                new Price(
+                        "gas",
+                        LocalDate.parse("2024-01-03"),
+                        LocalDate.parse("2024-01-03"),
+                        new BigDecimal("1.0")
+                )
+        );
+
+        List<InvoiceLine> lines = invoiceLineService.createInvoiceLines(measurement, prices, 1);
+
+        BigDecimal totalQuantity = lines.stream()
+                .map(InvoiceLine::getQuantity)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        assertEquals(new BigDecimal("100.000"), totalQuantity);
+    }
+
+    @Test
     void failsWhenPricesDoNotCoverFullMeasurementPeriod() {
         Measurement measurement = new Measurement(
                 "1",

@@ -24,10 +24,4 @@ public class ReadingService {
                 .sorted(Comparator.comparing(Reading::getDate))
                 .toList();
     }
-
-    public List<Reading> findByReferenceNumberAndProduct(Path inputDirectory, String referenceNumber, String product) {
-        return findByReferenceNumber(inputDirectory, referenceNumber).stream()
-                .filter(reading -> reading.getProduct().equals(product))
-                .toList();
-    }
 }

@@ -28,6 +28,8 @@ import static com.billing.minibilling.util.Constants.FIRST_DOCUMENT_NUMBER;
 @Service
 @RequiredArgsConstructor
 public class BillingService {
+    private static final String PREVIEW_DOCUMENT_NUMBER = "PREVIEW";
+
     private final UserService userService;
     private final ReadingService readingService;
     private final PriceService priceService;
@@ -60,18 +62,39 @@ public class BillingService {
                 continue;
             }
 
-            invoices.add(createInvoice(user, userMeasurements, priceLists, documentNumber));
+            invoices.add(createInvoice(user, userMeasurements, priceLists, String.valueOf(documentNumber)));
             documentNumber++;
         }
 
         return invoices;
     }
 
+    public Invoice previewInvoice(
+            Path inputDirectory,
+            YearMonth billingMonth,
+            String referenceNumber,
+            List<Reading> newReadings
+    ) {
+        User user = userService.findByReferenceNumber(inputDirectory, referenceNumber)
+                .orElseThrow(() -> new IllegalArgumentException("Missing user for reference number " + referenceNumber));
+
+        List<Reading> readings = new ArrayList<>(readingService.loadReadings(inputDirectory));
+        readings.addAll(newReadings);
+
+        Map<Integer, List<Price>> priceLists = priceService.loadPriceLists(inputDirectory);
+        List<Measurement> measurements = measurementService.calculateMonthlyMeasurements(readings, billingMonth)
+                .stream()
+                .filter(measurement -> measurement.getReferenceNumber().equals(referenceNumber))
+                .toList();
+
+        return createInvoice(user, measurements, priceLists, PREVIEW_DOCUMENT_NUMBER);
+    }
+
     private Invoice createInvoice(
             User user,
             List<Measurement> measurements,
             Map<Integer, List<Price>> priceLists,
-            int documentNumber
+            String documentNumber
     ) {
         List<InvoiceLine> lines = measurements.stream()
                 .sorted(Comparator.comparing(Measurement::getProduct))
@@ -88,7 +111,7 @@ public class BillingService {
 
         return new Invoice(
                 OffsetDateTime.now(ZoneOffset.UTC),
-                String.valueOf(documentNumber),
+                documentNumber,
                 user.getName(),
                 user.getReferenceNumber(),
                 totalAmount,

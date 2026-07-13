@@ -1,6 +1,8 @@
 package com.billing.minibilling.service;
 
+import com.billing.minibilling.dto.ReadingInput;
 import com.billing.minibilling.model.Invoice;
+import com.billing.minibilling.model.Reading;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -27,6 +29,25 @@ public class BillingFacadeService {
         invoiceWriterService.writeInvoices(invoices, outputPath, billingMonth);
 
         return invoices;
+    }
+
+    public Invoice previewInvoice(
+            String period,
+            String inputDirectory,
+            String referenceNumber,
+            List<ReadingInput> newReadings
+    ) {
+        YearMonth billingMonth = parseBillingMonth(period);
+        List<Reading> readings = newReadings.stream()
+                .map(reading -> new Reading(
+                        referenceNumber,
+                        reading.getProduct(),
+                        reading.getDate(),
+                        reading.getValue()
+                ))
+                .toList();
+
+        return billingService.previewInvoice(Path.of(inputDirectory), billingMonth, referenceNumber, readings);
     }
 
     private YearMonth parseBillingMonth(String period) {

@@ -34,4 +34,12 @@ public class PriceService {
                 .sorted(Comparator.comparing(Price::getStartDate))
                 .toList();
     }
+
+    public List<String> findProductsByPriceListNumber(Path inputDirectory, int priceListNumber) {
+        return loadPriceList(inputDirectory, priceListNumber).stream()
+                .map(Price::getProduct)
+                .distinct()
+                .sorted()
+                .toList();
+    }
 }

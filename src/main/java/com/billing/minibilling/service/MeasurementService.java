@@ -41,10 +41,13 @@ public class MeasurementService {
                 .atZone(BILLING_ZONE)
                 .toOffsetDateTime();
 
-        Optional<Reading> previousReading = findLastBefore(readings, periodStart);
-        Optional<Reading> currentReading = findLastBetween(readings, periodStart, periodEnd);
+        List<Reading> readingsInPeriod = findBetween(readings, periodStart, periodEnd);
+        Optional<Reading> previousReading = findLastBefore(readings, periodStart)
+                .or(() -> findFirst(readingsInPeriod));
+        Optional<Reading> currentReading = findLast(readingsInPeriod);
 
-        if (previousReading.isEmpty() || currentReading.isEmpty()) {
+        if (previousReading.isEmpty() || currentReading.isEmpty()
+                || !previousReading.get().getDate().isBefore(currentReading.get().getDate())) {
             return Optional.empty();
         }
 
@@ -57,10 +60,20 @@ public class MeasurementService {
                 .max(Comparator.comparing(Reading::getDate));
     }
 
-    private Optional<Reading> findLastBetween(List<Reading> readings, OffsetDateTime start, OffsetDateTime end) {
+    private List<Reading> findBetween(List<Reading> readings, OffsetDateTime start, OffsetDateTime end) {
         return readings.stream()
                 .filter(reading -> !reading.getDate().isBefore(start))
                 .filter(reading -> !reading.getDate().isAfter(end))
+                .toList();
+    }
+
+    private Optional<Reading> findFirst(List<Reading> readings) {
+        return readings.stream()
+                .min(Comparator.comparing(Reading::getDate));
+    }
+
+    private Optional<Reading> findLast(List<Reading> readings) {
+        return readings.stream()
                 .max(Comparator.comparing(Reading::getDate));
     }
 

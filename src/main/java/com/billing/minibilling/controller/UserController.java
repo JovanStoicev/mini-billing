@@ -2,6 +2,7 @@ package com.billing.minibilling.controller;
 
 import com.billing.minibilling.model.Reading;
 import com.billing.minibilling.model.User;
+import com.billing.minibilling.service.PriceService;
 import com.billing.minibilling.service.ReadingService;
 import com.billing.minibilling.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +19,7 @@ import java.util.List;
 public class UserController {
     private final UserService userService;
     private final ReadingService readingService;
+    private final PriceService priceService;
 
     @GetMapping("/users")
     public List<User> getUsers(@RequestParam String inputDirectory) {
@@ -39,5 +41,17 @@ public class UserController {
             @RequestParam String inputDirectory
     ) {
         return readingService.findByReferenceNumber(Path.of(inputDirectory), referenceNumber);
+    }
+
+    @GetMapping("/users/{referenceNumber}/products")
+    public List<String> getProducts(
+            @PathVariable String referenceNumber,
+            @RequestParam String inputDirectory
+    ) {
+        Path inputPath = Path.of(inputDirectory);
+        User user = userService.findByReferenceNumber(inputPath, referenceNumber)
+                .orElseThrow(() -> new IllegalArgumentException("Missing user for reference number " + referenceNumber));
+
+        return priceService.findProductsByPriceListNumber(inputPath, user.getPriceListNumber());
     }
 }

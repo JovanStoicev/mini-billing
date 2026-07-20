@@ -7,12 +7,12 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
 
 import static com.billing.minibilling.util.Constants.*;
 
@@ -23,62 +23,88 @@ public class InvoiceLineService {
             List<Price> prices,
             int priceListNumber
     ) {
-        long totalSeconds = inclusiveSecondsBetween(measurement.getStartDate(), measurement.getEndDate());
-        if (totalSeconds <= 0) {
+        long totalDays = inclusiveDaysBetween(measurement.getStartDate(), measurement.getEndDate());
+        if (totalDays <= 0) {
             throw new IllegalArgumentException("Measurement end date must be after start date");
         }
 
-        List<LinePeriod> linePeriods = prices.stream()
+        List<Price> productPrices = prices.stream()
                 .filter(price -> price.getProduct().equals(measurement.getProduct()))
                 .sorted(Comparator.comparing(Price::getStartDate))
-                .map(price -> createLinePeriod(measurement, price))
-                .flatMap(Optional::stream)
                 .toList();
+        List<LinePeriod> linePeriods = createLinePeriods(measurement, productPrices);
 
         if (linePeriods.isEmpty()) {
             throw new IllegalArgumentException("Missing price for product " + measurement.getProduct());
         }
 
-        validateFullPriceCoverage(linePeriods, totalSeconds, measurement.getProduct());
+        validateFullPriceCoverage(linePeriods, totalDays, measurement.getProduct());
 
-        return createInvoiceLines(measurement, linePeriods, priceListNumber, totalSeconds);
+        return createInvoiceLines(measurement, linePeriods, priceListNumber, totalDays);
     }
 
-    private Optional<LinePeriod> createLinePeriod(Measurement measurement, Price price) {
-        OffsetDateTime priceStart = price.getStartDate()
-                .atStartOfDay(BILLING_ZONE)
-                .toOffsetDateTime();
-        OffsetDateTime priceEnd = price.getEndDate()
-                .atTime(23, 59, 59)
-                .atZone(BILLING_ZONE)
-                .toOffsetDateTime();
+    private List<LinePeriod> createLinePeriods(Measurement measurement, List<Price> prices) {
+        List<LinePeriod> linePeriods = new ArrayList<>();
+        LocalDate measurementStartDate = measurement.getStartDate().toLocalDate();
+        LocalDate measurementEndDate = measurement.getEndDate().toLocalDate();
+        OffsetDateTime nextStart = measurement.getStartDate();
 
-        OffsetDateTime lineStart = max(measurement.getStartDate(), priceStart);
-        OffsetDateTime lineEnd = min(measurement.getEndDate(), priceEnd);
+        for (Price price : prices) {
+            if (price.getEndDate().isBefore(measurementStartDate)) {
+                continue;
+            }
 
-        if (lineStart.isAfter(lineEnd)) {
-            return Optional.empty();
+            if (price.getStartDate().isAfter(measurementEndDate)) {
+                break;
+            }
+
+            OffsetDateTime lineStart = price.getStartDate().isAfter(nextStart.toLocalDate())
+                    ? priceStart(price)
+                    : nextStart;
+            OffsetDateTime lineEnd = price.getEndDate().isBefore(measurementEndDate)
+                    ? priceEnd(price)
+                    : measurement.getEndDate();
+
+            if (!lineStart.isAfter(lineEnd)) {
+                linePeriods.add(new LinePeriod(lineStart, lineEnd, price));
+                nextStart = lineEnd.plusSeconds(1);
+            }
         }
 
-        return Optional.of(new LinePeriod(lineStart, lineEnd, price));
+        return linePeriods;
+    }
+
+    private OffsetDateTime priceStart(Price price) {
+        return price.getStartDate()
+                .atStartOfDay(BILLING_ZONE)
+                .toOffsetDateTime();
+    }
+
+    private OffsetDateTime priceEnd(Price price) {
+        return price.getEndDate()
+                .atStartOfDay(BILLING_ZONE)
+                .toOffsetDateTime()
+                .withHour(23)
+                .withMinute(59)
+                .withSecond(59);
     }
 
     private List<InvoiceLine> createInvoiceLines(
             Measurement measurement,
             List<LinePeriod> linePeriods,
             int priceListNumber,
-            long totalSeconds
+            long totalDays
     ) {
         List<InvoiceLine> invoiceLines = new ArrayList<>();
-        BigDecimal distributedQuantity = BigDecimal.ZERO.setScale(QUANTITY_SCALE, RoundingMode.CEILING);
-        BigDecimal totalQuantity = measurement.getQuantity().setScale(QUANTITY_SCALE, RoundingMode.CEILING);
+        BigDecimal distributedQuantity = BigDecimal.ZERO.setScale(AMOUNT_SCALE, RoundingMode.CEILING);
+        BigDecimal totalQuantity = measurement.getQuantity().setScale(AMOUNT_SCALE, RoundingMode.CEILING);
 
         for (int index = 0; index < linePeriods.size(); index++) {
             LinePeriod linePeriod = linePeriods.get(index);
             boolean isLastLine = index == linePeriods.size() - 1;
             BigDecimal quantity = isLastLine
                     ? totalQuantity.subtract(distributedQuantity)
-                    : calculateProportionalQuantity(totalQuantity, linePeriod.seconds(), totalSeconds);
+                    : calculateProportionalQuantity(totalQuantity, linePeriod.days(), totalDays);
             BigDecimal amount = quantity.multiply(linePeriod.price().getAmount()).setScale(AMOUNT_SCALE, RoundingMode.CEILING);
 
             invoiceLines.add(new InvoiceLine(
@@ -98,37 +124,34 @@ public class InvoiceLineService {
         return invoiceLines;
     }
 
-    private void validateFullPriceCoverage(List<LinePeriod> linePeriods, long totalSeconds, String product) {
-        long coveredSeconds = linePeriods.stream()
-                .mapToLong(LinePeriod::seconds)
+    private void validateFullPriceCoverage(List<LinePeriod> linePeriods, long totalDays, String product) {
+        long coveredDays = linePeriods.stream()
+                .mapToLong(LinePeriod::days)
                 .sum();
 
-        if (coveredSeconds != totalSeconds) {
+        if (coveredDays != totalDays) {
             throw new IllegalArgumentException("Price periods do not cover the full measurement period for product " + product);
         }
     }
 
-    private BigDecimal calculateProportionalQuantity(BigDecimal totalQuantity, long lineSeconds, long totalSeconds) {
-        return totalQuantity
-                .multiply(BigDecimal.valueOf(lineSeconds))
-                .divide(BigDecimal.valueOf(totalSeconds), QUANTITY_SCALE, RoundingMode.CEILING);
+    private BigDecimal calculateProportionalQuantity(BigDecimal totalQuantity, long lineDays, long totalDays) {
+        BigDecimal ratio = BigDecimal.valueOf(lineDays)
+                .divide(BigDecimal.valueOf(totalDays), AMOUNT_SCALE, RoundingMode.CEILING);
+
+        return totalQuantity.multiply(ratio).setScale(AMOUNT_SCALE, RoundingMode.CEILING);
     }
 
-    private long inclusiveSecondsBetween(OffsetDateTime start, OffsetDateTime end) {
-        return ChronoUnit.SECONDS.between(start, end) + 1;
-    }
-
-    private OffsetDateTime max(OffsetDateTime first, OffsetDateTime second) {
-        return first.isAfter(second) ? first : second;
-    }
-
-    private OffsetDateTime min(OffsetDateTime first, OffsetDateTime second) {
-        return first.isBefore(second) ? first : second;
+    private long inclusiveDaysBetween(OffsetDateTime start, OffsetDateTime end) {
+        return ChronoUnit.DAYS.between(start.toLocalDate(), end.toLocalDate()) + 1;
     }
 
     private record LinePeriod(OffsetDateTime start, OffsetDateTime end, Price price) {
-        private long seconds() {
-            return ChronoUnit.SECONDS.between(start, end) + 1;
+        private long days() {
+            return inclusiveDaysBetween(start, end);
+        }
+
+        private static long inclusiveDaysBetween(OffsetDateTime start, OffsetDateTime end) {
+            return ChronoUnit.DAYS.between(start.toLocalDate(), end.toLocalDate()) + 1;
         }
     }
 }

@@ -35,7 +35,6 @@ public class Constants {
             "декември"
     );
 
-    public static final int QUANTITY_SCALE = 3;
     public static final int AMOUNT_SCALE = 2;
     public static final int FIRST_DOCUMENT_NUMBER = 10000;
 }

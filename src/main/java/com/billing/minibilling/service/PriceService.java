@@ -6,7 +6,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -26,13 +25,6 @@ public class PriceService {
         }
 
         return prices;
-    }
-
-    public List<Price> findByPriceListNumberAndProduct(Path inputDirectory, int priceListNumber, String product) {
-        return loadPriceList(inputDirectory, priceListNumber).stream()
-                .filter(price -> price.getProduct().equals(product))
-                .sorted(Comparator.comparing(Price::getStartDate))
-                .toList();
     }
 
     public List<String> findProductsByPriceListNumber(Path inputDirectory, int priceListNumber) {

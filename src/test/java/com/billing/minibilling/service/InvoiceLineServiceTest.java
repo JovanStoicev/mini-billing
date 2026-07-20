@@ -36,7 +36,7 @@ class InvoiceLineServiceTest {
 
         assertEquals(1, lines.size());
         assertEquals(1, lines.getFirst().getIndex());
-        assertEquals(new BigDecimal("87.000"), lines.getFirst().getQuantity());
+        assertEquals(new BigDecimal("87.00"), lines.getFirst().getQuantity());
         assertEquals(new BigDecimal("1.8"), lines.getFirst().getPrice());
         assertEquals(new BigDecimal("156.60"), lines.getFirst().getAmount());
     }
@@ -68,10 +68,10 @@ class InvoiceLineServiceTest {
         List<InvoiceLine> lines = invoiceLineService.createInvoiceLines(measurement, prices, 2);
 
         assertEquals(2, lines.size());
-        assertEquals(new BigDecimal("5.000"), lines.get(0).getQuantity());
+        assertEquals(new BigDecimal("5.00"), lines.get(0).getQuantity());
         assertEquals(new BigDecimal("0.4"), lines.get(0).getPrice());
         assertEquals(new BigDecimal("2.00"), lines.get(0).getAmount());
-        assertEquals(new BigDecimal("5.000"), lines.get(1).getQuantity());
+        assertEquals(new BigDecimal("5.00"), lines.get(1).getQuantity());
         assertEquals(new BigDecimal("4.4"), lines.get(1).getPrice());
         assertEquals(new BigDecimal("22.00"), lines.get(1).getAmount());
     }
@@ -112,7 +112,52 @@ class InvoiceLineServiceTest {
                 .map(InvoiceLine::getQuantity)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        assertEquals(new BigDecimal("100.000"), totalQuantity);
+        assertEquals(new BigDecimal("100.00"), totalQuantity);
+    }
+
+    @Test
+    void distributesQuantityProportionallyByDays() {
+        Measurement measurement = new Measurement(
+                "1",
+                "elec",
+                OffsetDateTime.parse("2023-11-01T13:23:00+02:00"),
+                OffsetDateTime.parse("2023-11-30T15:20:00+02:00"),
+                new BigDecimal("120")
+        );
+        List<Price> prices = List.of(
+                new Price(
+                        "elec",
+                        LocalDate.parse("2023-10-25"),
+                        LocalDate.parse("2023-11-06"),
+                        new BigDecimal("0.30")
+                ),
+                new Price(
+                        "elec",
+                        LocalDate.parse("2023-11-07"),
+                        LocalDate.parse("2023-11-18"),
+                        new BigDecimal("0.35")
+                ),
+                new Price(
+                        "elec",
+                        LocalDate.parse("2023-11-19"),
+                        LocalDate.parse("2023-12-04"),
+                        new BigDecimal("0.32")
+                )
+        );
+
+        List<InvoiceLine> lines = invoiceLineService.createInvoiceLines(measurement, prices, 1);
+
+        assertEquals(3, lines.size());
+        assertEquals(OffsetDateTime.parse("2023-11-01T13:23:00+02:00"), lines.get(0).getLineStart());
+        assertEquals(OffsetDateTime.parse("2023-11-06T23:59:59+02:00"), lines.get(0).getLineEnd());
+        assertEquals(new BigDecimal("24.00"), lines.get(0).getQuantity());
+        assertEquals(new BigDecimal("0.30"), lines.get(0).getPrice());
+        assertEquals(new BigDecimal("48.00"), lines.get(1).getQuantity());
+        assertEquals(new BigDecimal("0.35"), lines.get(1).getPrice());
+        assertEquals(OffsetDateTime.parse("2023-11-19T00:00:00+02:00"), lines.get(2).getLineStart());
+        assertEquals(OffsetDateTime.parse("2023-11-30T15:20:00+02:00"), lines.get(2).getLineEnd());
+        assertEquals(new BigDecimal("48.00"), lines.get(2).getQuantity());
+        assertEquals(new BigDecimal("0.32"), lines.get(2).getPrice());
     }
 
     @Test
